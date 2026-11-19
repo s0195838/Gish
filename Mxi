@@ -1,0 +1,115 @@
+% Лабораторная 2. Нечёткая система Agg_lvl.
+clear;
+clc;
+close all;
+
+% Матрицы парных сравнений 9x9 из Лабораторной 1
+A1 = [1 1/2 1/3 1/4 1/5 1/6 1/7 1/8 1/9;
+      2 1 1/2 1/3 1/4 1/5 1/6 1/7 1/8;
+      3 2 1 1/2 1/3 1/4 1/5 1/6 1/7;
+      4 3 2 1 1/2 1/3 1/4 1/5 1/6;
+      5 4 3 2 1 1/2 1/3 1/4 1/5;
+      6 5 3 3 2 1 1/2 1/3 1/4;
+      7 5 4 4 3 2 1 1/2 1/3;
+      8 7 5 5 3 3 2 1 1/2;
+      9 8 7 6 5 4 3 2 1];
+
+A2 = [1 2 3 4 5 6 7 8 9;
+      1/2 1 2 2 3 4 5 5 7;
+      1/3 1/2 1 2 3 3 4 6 6;
+      1/4 1/2 1/2 1 2 3 4 4 5;
+      1/5 1/3 1/3 1/2 1 2 3 4 5;
+      1/6 1/4 1/3 1/4 1/2 1 2 2 3;
+      1/7 1/5 1/4 1/4 1/3 1/2 1 2 3;
+      1/8 1/5 1/6 1/4 1/4 1/2 1/2 1 2;
+      1/9 1/7 1/6 1/6 1/5 1/3 1/3 1/2 1];
+
+A3 = [1 1/3 1/4 1/6 1/7 1/6 1/4 1/3 1;
+      3 1 1/2 1/5 1/6 1/5 1/2 1 3;
+      4 2 1 1/3 1/4 1/3 1 2 4;
+      6 5 3 1 1/3 1 3 5 6;
+      7 6 4 3 1 3 4 6 7;
+      6 5 3 1 1/3 1 3 5 6;
+      4 2 1 1/3 1/4 1/3 1 2 4;
+      3 1 1/2 1/5 1/6 1/5 1/2 1 3;
+      1 1/3 1/4 1/6 1/7 1/6 1/4 1/3 1];
+
+% Имена лингвистических переменных
+names = {'Sudden_Agg', 'Irritability', 'React_Agg', 'AL'};
+matrices = {A2, A3, A1};
+
+% Матрица степеней сглаживания для каждой переменной и терма
+powers = [1.00 1.00 1.00;
+          0.55 0.85 0.65;
+          0.85 0.60 0.90;
+          0.75 0.75 0.75];
+
+% Задание универсума
+x = 160:5:200;
+gridX = (160:0.1:200).';
+muNodes = zeros(numel(x), 3, 4);
+muGrid = zeros(numel(gridX), 3, 4);
+
+% Построение функций принадлежности через поиск собственных векторов
+figure('Name', 'Agg_lvl', 'NumberTitle', 'off');
+for variable = 1:4
+    for term = 1:3
+        A = matrices{term}.^powers(variable, term);
+        [V, D] = eig(A);
+        [~, idx] = max(real(diag(D)));
+        w = real(V(:, idx));
+        w = w / sum(w);
+        muNodes(:, term, variable) = w / max(w);
+    end
+
+    % Линейная интерполяция между узлами
+    muGrid(:, :, variable) = interp1(x, muNodes(:, :, variable), gridX, 'linear');
+    
+    % Отрисовка графиков функций принадлежности
+    subplot(2, 2, variable);
+    plot(x, muNodes(:, 1, variable), 'b-o', ...
+         x, muNodes(:, 2, variable), 'g-s', ...
+         x, muNodes(:, 3, variable), 'r-^', 'LineWidth', 1.5);
+    grid on;
+    title(names{variable}, 'Interpreter', 'none');
+    xlabel('Учебная оценка');
+    ylabel('Степень принадлежности');
+    set(gca, 'XTick', x);
+    axis([160 200 0 1.05]);
+    legend('Низкий', 'Средний', 'Высокий', 'Location', 'best');
+end
+
+% Входной вектор оценок: [Sudden_Agg, Irritability, React_Agg]
+inputScores = [190 185 195];
+assert(isreal(inputScores) && isvector(inputScores) && ...
+       numel(inputScores) == 3 && all(inputScores >= x(1) & inputScores <= x(end)), ...
+       'Введите три числа от 160 до 200.');
+
+% Фаззификация входов
+inputMu = zeros(3, 3);
+for variable = 1:3
+    inputMu(variable, :) = interp1(x, muNodes(:, :, variable), ...
+                                   inputScores(variable), 'linear');
+end
+
+% Генерация 27 правил нечёткого вывода
+[t1, t2, t3] = ndgrid(1:3, 1:3, 1:3);
+ruleInputs = [t1(:), t2(:), t3(:)];
+ruleOutputs = round(mean(ruleInputs, 2));
+
+% Нечёткий вывод Мамдани (Min-Max)
+outputMu = zeros(size(gridX));
+for rule = 1:size(ruleInputs, 1)
+    terms = ruleInputs(rule, :);
+    strength = min([inputMu(1, terms(1)), inputMu(2, terms(2)), ...
+                    inputMu(3, terms(3))]);
+    clipped = min(strength, muGrid(:, ruleOutputs(rule), 4));
+    outputMu = max(outputMu, clipped);
+end
+
+% Дефаззификация методом центра тяжести
+AL = trapz(gridX, gridX .* outputMu) / trapz(gridX, outputMu);
+
+% Вывод результатов в консоль
+fprintf('Sudden_Agg = %.2f, Irritability = %.2f, React_Agg = %.2f\n', inputScores);
+fprintf('AL = %.4f\n', AL);
